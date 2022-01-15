@@ -31,6 +31,7 @@ def build_load_dag(
     chain='ethereum',
     notification_emails=None,
     load_start_date=datetime(2018, 7, 1),
+    load_end_date=datetime.now(),
     schedule_interval='0 0 * * *',
     load_all_partitions=True
 ):
@@ -74,6 +75,7 @@ def build_load_dag(
     default_dag_args = {
         'depends_on_past': False,
         'start_date': load_start_date,
+        'end_date': load_end_date,
         'email_on_failure': True,
         'email_on_retry': False,
         'retries': 5,
@@ -86,7 +88,7 @@ def build_load_dag(
     # Define a DAG (directed acyclic graph) of tasks.
     dag = models.DAG(
         dag_id,
-        catchup=False,
+        catchup=True,  # I need backfill for my task
         schedule_interval=schedule_interval,
         default_args=default_dag_args)
 
@@ -98,8 +100,8 @@ def build_load_dag(
             timeout=60 * 60,
             poke_interval=60,
             bucket=output_bucket,
-            object='export/{task}/block_date={datestamp}/{task}.{file_format}'.format(
-                task=task, datestamp='{{ds}}', file_format=file_format),
+            object='export/{task}/block_date={datestamp}/block_hour={hour}/{task}.{file_format}'.format(
+                task=task, datestamp='{{ds}}', hour='{{"%02d" | format(execution_date.hour | int)}}', file_format=file_format),
             dag=dag
         )
 
@@ -122,8 +124,13 @@ def build_load_dag(
                 uri = '{export_location_uri}/{task}/*.{file_format}'.format(
                     export_location_uri=export_location_uri, task=task, file_format=file_format)
             else:
-                uri = '{export_location_uri}/{task}/block_date={ds}/*.{file_format}'.format(
-                    export_location_uri=export_location_uri, task=task, ds=ds, file_format=file_format)
+                uri = '{export_location_uri}/{task}/block_date={ds}/block_hour={block_hour}/*.{file_format}'.format(
+                    export_location_uri=export_location_uri,
+                    task=task,
+                    ds=ds,
+                    block_hour="{:02d}".format(kwargs["execution_date"].hour),
+                    file_format=file_format)
+            # raw table is just one hour data table, since we "WRITE_TRUNCATE" raw table.
             table_ref = client.dataset(dataset_name_raw).table(task)
             load_job = client.load_table_from_uri(uri, table_ref, job_config=job_config)
             submit_bigquery_job(load_job, job_config)
@@ -191,7 +198,8 @@ def build_load_dag(
                 copy_job_config.write_disposition = 'WRITE_TRUNCATE'
                 dest_table_name = '{task}'.format(task=task)
                 dest_table_ref = client.dataset(dataset_name, project=destination_dataset_project_id).table(dest_table_name)
-                copy_job = client.copy_table(temp_table_ref, dest_table_ref, location='US', job_config=copy_job_config)
+                # also hard coded
+                copy_job = client.copy_table(temp_table_ref, dest_table_ref, location='asia-northeast3', job_config=copy_job_config)
                 submit_bigquery_job(copy_job, copy_job_config)
                 assert copy_job.state == 'DONE'
             else:
@@ -212,12 +220,13 @@ def build_load_dag(
                 merge_sql = kwargs['task'].render_template(merge_sql_template, merge_template_context)
                 print('Merge sql:')
                 print(merge_sql)
-                merge_job = client.query(merge_sql, location='US', job_config=merge_job_config)
+                merge_job = client.query(merge_sql, location='asia-northeast3', job_config=merge_job_config)
                 submit_bigquery_job(merge_job, merge_job_config)
                 assert merge_job.state == 'DONE'
 
             # Delete temp table
             client.delete_table(temp_table_ref)
+            logging.info(f'Delete table {temp_table_ref}')
 
         enrich_operator = PythonOperator(
             task_id='enrich_{task}'.format(task=task),
@@ -278,78 +287,78 @@ def build_load_dag(
     # Load tasks #
 
     load_blocks_task = add_load_tasks('blocks', 'json')
-    load_transactions_task = add_load_tasks('transactions', 'json')
-    load_receipts_task = add_load_tasks('receipts', 'json')
-    load_logs_task = add_load_tasks('logs', 'json')
-    load_contracts_task = add_load_tasks('contracts', 'json')
-    load_tokens_task = add_load_tasks('tokens', 'json', allow_quoted_newlines=True)
+    # load_transactions_task = add_load_tasks('transactions', 'json')
+    # load_receipts_task = add_load_tasks('receipts', 'json')
+    # load_logs_task = add_load_tasks('logs', 'json')
+    # load_contracts_task = add_load_tasks('contracts', 'json')
+    # load_tokens_task = add_load_tasks('tokens', 'json', allow_quoted_newlines=True)
     load_token_transfers_task = add_load_tasks('token_transfers', 'json')
-    load_traces_task = add_load_tasks('traces', 'json')
+    # load_traces_task = add_load_tasks('traces', 'json')
 
     # Enrich tasks #
 
-    enrich_blocks_task = add_enrich_tasks(
-        'blocks', time_partitioning_field='timestamp', dependencies=[load_blocks_task])
-    enrich_transactions_task = add_enrich_tasks(
-        'transactions', dependencies=[load_blocks_task, load_transactions_task, load_receipts_task])
-    enrich_logs_task = add_enrich_tasks(
-        'logs', dependencies=[load_blocks_task, load_logs_task])
+    # enrich_blocks_task = add_enrich_tasks(
+    #     'blocks', time_partitioning_field='timestamp', dependencies=[load_blocks_task])
+    # enrich_transactions_task = add_enrich_tasks(
+    #     'transactions', dependencies=[load_blocks_task, load_transactions_task, load_receipts_task])
+    # enrich_logs_task = add_enrich_tasks(
+    #     'logs', dependencies=[load_blocks_task, load_logs_task])
     enrich_token_transfers_task = add_enrich_tasks(
         'token_transfers', dependencies=[load_blocks_task, load_token_transfers_task])
-    enrich_traces_task = add_enrich_tasks(
-        'traces', dependencies=[load_blocks_task, load_traces_task])
-    enrich_contracts_task = add_enrich_tasks(
-        'contracts', dependencies=[load_blocks_task, load_contracts_task])
-    enrich_tokens_task = add_enrich_tasks(
-        'tokens', dependencies=[load_blocks_task, load_tokens_task])
+    # enrich_traces_task = add_enrich_tasks(
+    #     'traces', dependencies=[load_blocks_task, load_traces_task])
+    # enrich_contracts_task = add_enrich_tasks(
+    #     'contracts', dependencies=[load_blocks_task, load_contracts_task])
+    # enrich_tokens_task = add_enrich_tasks(
+    #     'tokens', dependencies=[load_blocks_task, load_tokens_task])
 
-    calculate_balances_task = add_enrich_tasks(
-        'balances', dependencies=[enrich_blocks_task, enrich_transactions_task, enrich_traces_task],
-        time_partitioning_field=None, always_load_all_partitions=True)
+    # calculate_balances_task = add_enrich_tasks(
+    #     'balances', dependencies=[enrich_blocks_task, enrich_transactions_task, enrich_traces_task],
+    #     time_partitioning_field=None, always_load_all_partitions=True)
 
     # Verify tasks #
 
-    verify_blocks_count_task = add_verify_tasks('blocks_count', [enrich_blocks_task])
-    verify_blocks_have_latest_task = add_verify_tasks('blocks_have_latest', [enrich_blocks_task])
-    verify_transactions_count_task = add_verify_tasks('transactions_count',
-                                                      [enrich_blocks_task, enrich_transactions_task])
-    verify_transactions_have_latest_task = add_verify_tasks('transactions_have_latest', [enrich_transactions_task])
-    verify_logs_have_latest_task = add_verify_tasks('logs_have_latest', [enrich_logs_task])
-    verify_token_transfers_have_latest_task = add_verify_tasks('token_transfers_have_latest',
-                                                               [enrich_token_transfers_task])
-    verify_traces_blocks_count_task = add_verify_tasks('traces_blocks_count', [enrich_blocks_task, enrich_traces_task])
-    verify_traces_transactions_count_task = add_verify_tasks(
-        'traces_transactions_count', [enrich_transactions_task, enrich_traces_task])
-    verify_traces_contracts_count_task = add_verify_tasks(
-        'traces_contracts_count', [enrich_transactions_task, enrich_traces_task, enrich_contracts_task])
+    # verify_blocks_count_task = add_verify_tasks('blocks_count', [enrich_blocks_task])
+    # verify_blocks_have_latest_task = add_verify_tasks('blocks_have_latest', [enrich_blocks_task])
+    # verify_transactions_count_task = add_verify_tasks('transactions_count',
+    #                                                   [enrich_blocks_task, enrich_transactions_task])
+    # verify_transactions_have_latest_task = add_verify_tasks('transactions_have_latest', [enrich_transactions_task])
+    # verify_logs_have_latest_task = add_verify_tasks('logs_have_latest', [enrich_logs_task])
+    # verify_token_transfers_have_latest_task = add_verify_tasks('token_transfers_have_latest',
+    #                                                            [enrich_token_transfers_task])
+    # verify_traces_blocks_count_task = add_verify_tasks('traces_blocks_count', [enrich_blocks_task, enrich_traces_task])
+    # verify_traces_transactions_count_task = add_verify_tasks(
+    #     'traces_transactions_count', [enrich_transactions_task, enrich_traces_task])
+    # verify_traces_contracts_count_task = add_verify_tasks(
+    #     'traces_contracts_count', [enrich_transactions_task, enrich_traces_task, enrich_contracts_task])
 
-    # Save checkpoint tasks #
+    # # Save checkpoint tasks #
 
-    save_checkpoint_task = add_save_checkpoint_tasks(dependencies=[
-        verify_blocks_count_task,
-        verify_blocks_have_latest_task,
-        verify_transactions_count_task,
-        verify_transactions_have_latest_task,
-        verify_logs_have_latest_task,
-        verify_token_transfers_have_latest_task,
-        verify_traces_blocks_count_task,
-        verify_traces_transactions_count_task,
-        verify_traces_contracts_count_task,
-        enrich_tokens_task,
-        calculate_balances_task,
-    ])
+    # save_checkpoint_task = add_save_checkpoint_tasks(dependencies=[
+    #     verify_blocks_count_task,
+    #     verify_blocks_have_latest_task,
+    #     verify_transactions_count_task,
+    #     verify_transactions_have_latest_task,
+    #     verify_logs_have_latest_task,
+    #     verify_token_transfers_have_latest_task,
+    #     verify_traces_blocks_count_task,
+    #     verify_traces_transactions_count_task,
+    #     verify_traces_contracts_count_task,
+    #     enrich_tokens_task,
+    #     calculate_balances_task,
+    # ])
 
     # Send email task #
 
-    if notification_emails and len(notification_emails) > 0:
-        send_email_task = EmailOperator(
-            task_id='send_email',
-            to=[email.strip() for email in notification_emails.split(',')],
-            subject='Ethereum ETL Airflow Load DAG Succeeded',
-            html_content='Ethereum ETL Airflow Load DAG Succeeded - {}'.format(chain),
-            dag=dag
-        )
-        save_checkpoint_task >> send_email_task
+    # if notification_emails and len(notification_emails) > 0:
+    #     send_email_task = EmailOperator(
+    #         task_id='send_email',
+    #         to=[email.strip() for email in notification_emails.split(',')],
+    #         subject='Ethereum ETL Airflow Load DAG Succeeded',
+    #         html_content='Ethereum ETL Airflow Load DAG Succeeded - {}'.format(chain),
+    #         dag=dag
+    #     )
+    #     save_checkpoint_task >> send_email_task
 
     return dag
 
