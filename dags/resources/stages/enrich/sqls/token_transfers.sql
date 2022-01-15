@@ -13,4 +13,5 @@ FROM {{params.dataset_name_raw}}.blocks AS blocks
 where true
     {% if not params.load_all_partitions %}
     and date(timestamp_seconds(blocks.timestamp)) = '{{ds}}'
+    and extract(hour from datetime(timestamp_seconds(blocks.timestamp))) = CAST('{{execution_date.hour}}' AS INT)
     {% endif %}

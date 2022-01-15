@@ -5,10 +5,12 @@ from airflow.models import Variable
 
 def read_export_dag_vars(var_prefix, **kwargs):
     export_start_date = read_var('export_start_date', var_prefix, True, **kwargs)
-    export_start_date = datetime.strptime(export_start_date, '%Y-%m-%d')
+    if isinstance(export_start_date, str):
+        export_start_date = datetime.strptime(export_start_date, '%Y-%m-%d')
 
     export_end_date = read_var('export_end_date', var_prefix, True, **kwargs)
-    export_end_date = datetime.strptime(export_end_date, '%Y-%m-%d')
+    if isinstance(export_end_date, str):
+        export_end_date = datetime.strptime(export_end_date, '%Y-%m-%d')
 
     provider_uris = read_var('provider_uris', var_prefix, True, **kwargs)
     provider_uris = [uri.strip() for uri in provider_uris.split(',')]

@@ -23,5 +23,5 @@ insert (
     block_number,
     block_hash
 )
-when not matched by source and date(block_timestamp) = '{{ds}}' then
+when not matched by source and date(block_timestamp) = '{{ds}}' and extract(hour from datetime(block_timestamp)) = CAST('{{execution_date.hour}}' AS INT) then
 delete

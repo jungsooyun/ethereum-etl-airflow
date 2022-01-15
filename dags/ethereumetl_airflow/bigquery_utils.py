@@ -57,7 +57,7 @@ def query(bigquery_client, sql, destination=None, priority=bigquery.QueryPriorit
     job_config.destination = destination
     job_config.priority = priority
     logging.info('Executing query: ' + sql)
-    query_job = bigquery_client.query(sql, location='US', job_config=job_config)
+    query_job = bigquery_client.query(sql, location='asia-northeast3', job_config=job_config)
     submit_bigquery_job(query_job, job_config)
     assert query_job.state == 'DONE'
 
