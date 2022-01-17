@@ -173,6 +173,7 @@ class BalanceSnapshot:
             .union(erc_721_joined_df)
             .withColumn("amount_delta", F.col("amount_delta").cast(StringType()))
             .orderBy("address", "token_address")
+            .withColumn("date", F.lit(self.execution_date))
         )
 
         return joined_df
