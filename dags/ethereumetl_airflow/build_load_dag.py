@@ -189,7 +189,7 @@ def build_load_dag(
             print('Enrichment sql:')
             print(sql)
 
-            query_job = client.query(sql, location='US', job_config=query_job_config)
+            query_job = client.query(sql, location='us-central1', job_config=query_job_config)
             submit_bigquery_job(query_job, query_job_config)
             assert query_job.state == 'DONE'
 
@@ -200,7 +200,7 @@ def build_load_dag(
                 dest_table_name = '{task}'.format(task=task)
                 dest_table_ref = client.dataset(dataset_name, project=destination_dataset_project_id).table(dest_table_name)
                 # also hard coded
-                copy_job = client.copy_table(temp_table_ref, dest_table_ref, location='asia-northeast3', job_config=copy_job_config)
+                copy_job = client.copy_table(temp_table_ref, dest_table_ref, location='us-central1', job_config=copy_job_config)
                 submit_bigquery_job(copy_job, copy_job_config)
                 assert copy_job.state == 'DONE'
             else:
@@ -221,7 +221,7 @@ def build_load_dag(
                 merge_sql = kwargs['task'].render_template(merge_sql_template, merge_template_context)
                 print('Merge sql:')
                 print(merge_sql)
-                merge_job = client.query(merge_sql, location='asia-northeast3', job_config=merge_job_config)
+                merge_job = client.query(merge_sql, location='us-central1', job_config=merge_job_config)
                 submit_bigquery_job(merge_job, merge_job_config)
                 assert merge_job.state == 'DONE'
 
