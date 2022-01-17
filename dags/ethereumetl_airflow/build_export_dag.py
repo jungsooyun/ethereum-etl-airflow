@@ -5,11 +5,13 @@ import logging
 from datetime import timedelta
 from tempfile import TemporaryDirectory
 
+import pendulum
+
 from airflow import DAG, configuration
 from airflow.operators import python_operator
 
 from ethereumetl.cli import (
-    get_block_range_for_date,
+    get_block_range_for_date_hour,
     export_blocks_and_transactions,
     export_receipts_and_logs,
     extract_contracts,
@@ -27,6 +29,7 @@ def build_export_dag(
         output_bucket,
         cloud_provider,
         export_start_date,
+        export_end_date,
         notification_emails=None,
         export_schedule_interval='0 0 * * *',
         export_max_workers=10,
@@ -38,6 +41,7 @@ def build_export_dag(
     default_dag_args = {
         "depends_on_past": False,
         "start_date": export_start_date,
+        "end_date": export_end_date,
         "email_on_failure": True,
         "email_on_retry": False,
         "retries": export_retries,
@@ -74,9 +78,11 @@ def build_export_dag(
         cloud_storage_hook = GoogleCloudStorageHook(google_cloud_storage_conn_id="google_cloud_default")
 
     # Export
-    def export_path(directory, date):
-        return "export/{directory}/block_date={block_date}/".format(
-            directory=directory, block_date=date.strftime("%Y-%m-%d")
+    def export_path(directory, date: pendulum.datetime):
+        return "export/{directory}/block_date={block_date}/block_hour={block_hour}/".format(
+            directory=directory,
+            block_date=date.strftime("%Y-%m-%d"),
+            block_hour='{:02d}'.format(date.hour)
         )
 
     def copy_to_export_path(file_path, export_path):
@@ -111,10 +117,13 @@ def build_export_dag(
         else:
             download_from_gcs(bucket=output_bucket, object=export_path + filename, filename=file_path)
 
-    def get_block_range(tempdir, date, provider_uri):
-        logging.info('Calling get_block_range_for_date({}, {}, ...)'.format(provider_uri, date))
-        get_block_range_for_date.callback(
-            provider_uri=provider_uri, date=date, output=os.path.join(tempdir, "blocks_meta.txt")
+    def get_block_range(tempdir, date: pendulum.datetime, provider_uri):
+        logging.info('Calling get_block_range_for_date_hour({}, {}, {} ...)'.format(provider_uri, date, date.hour))
+        get_block_range_for_date_hour.callback(
+            provider_uri=provider_uri,
+            date=date,
+            hour=date.hour,
+            output=os.path.join(tempdir, "blocks_meta.txt")
         )
 
         with open(os.path.join(tempdir, "blocks_meta.txt")) as block_range_file:
