@@ -90,6 +90,7 @@ def build_load_dag(
         dag_id,
         catchup=True,  # I need backfill for my task
         schedule_interval=schedule_interval,
+        max_active_runs=1,  # since we use single raw table
         default_args=default_dag_args)
 
     dags_folder = os.environ.get('DAGS_FOLDER', '/home/airflow/gcs/dags')
