@@ -189,7 +189,7 @@ def build_load_dag(
             print('Enrichment sql:')
             print(sql)
 
-            query_job = client.query(sql, location='US', job_config=query_job_config)
+            query_job = client.query(sql, location='us-central1', job_config=query_job_config)
             submit_bigquery_job(query_job, query_job_config)
             assert query_job.state == 'DONE'
 

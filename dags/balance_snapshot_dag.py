@@ -15,7 +15,7 @@ PROJECT_ID = Variable.get("project_id", "nftbank-project")
 REGION = Variable.get("region", "us-central1")
 BUCKET = Variable.get("balance_bucket", "lake-to-mart")
 DATASET_NAME = Variable.get("balance_dataset_name", "crypto_ethereum")
-CLUSTER_NAME = Variable.get("cluster_name", "temp-balance-cluster")
+CLUSTER_NAME = Variable.get("cluster_name", "my-cluster")
 
 CLUSTER_CONFIG = {
     "image_version": "1.5",
@@ -83,8 +83,8 @@ bq_token_transfer_transform = DataprocSubmitJobOperator(
 load_snapshot_on_bq = GCSToBigQueryOperator(
     task_id="gcs_to_bigquery",
     bucket=BUCKET,
-    source_object=f"gs://{BUCKET}/date={{ ds }}/*",
-    destination_project_dataset_table=f"",
+    source_objects=f"gs://{BUCKET}/date='{{ ds }}'/*",
+    destination_project_dataset_table=f"{PROJECT_ID}.{DATASET_NAME}.daily_token_balance",
     schema_fields=[
         {"name": "address", "type": "STRING", "mode": "REQUIRED"},
         {"name": "type", "type": "STRING", "mode": "REQUIRED"},
@@ -99,4 +99,5 @@ load_snapshot_on_bq = GCSToBigQueryOperator(
 )
 
 
-create_dataproc_cluster >> bq_token_transfer_transform >> load_snapshot_on_bq
+# create_dataproc_cluster >>
+bq_token_transfer_transform >> load_snapshot_on_bq
